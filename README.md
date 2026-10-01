@@ -8,8 +8,10 @@
 
 ```text
 github-org-inviter/
-├── invite_and_assign.sh    # スクリプト本体
-├── students.csv.example    # サンプルCSVファイル
+├── invite_and_assign.sh    # メンバー招待＆チーム振り分けスクリプト
+├── students.csv.example    # メンバー招待用のサンプルCSV
+├── create_team_repos.sh    # チームリポジトリ作成スクリプト (新規)
+├── repos.csv.example       # リポジトリ作成用のサンプルCSV (新規)
 └── README.md               # 本ドキュメント
 ```
 
@@ -82,3 +84,39 @@ ORG_NAME="your-org-name" ./invite_and_assign.sh
    - リクエスト間にウェイト（デフォルト: 0.5秒）を挟み、API制限を回避します。
 5. **Excel/CRLF改行対応**
    - Windows環境のExcel等で保存された改行コード（`\r\n`）を自動除去します。
+
+---
+
+## チームリポジトリの一括作成 (`create_team_repos.sh`)
+
+学生チームごとのリポジトリを作成し、対象チームへアクセス権限（書き込み権限 `push` 等）を一括付与するスクリプトです。
+
+### 1. CSVファイルの準備 (`repos.csv`)
+`repos.csv.example` を参考に `repos.csv` を作成します。
+
+```csv
+repo,team,description,visibility
+project-team-alpha,team-alpha,Team Alpha Project Repository,private
+project-team-beta,team-beta,Team Beta Project Repository,private
+assignment-team-gamma,team-gamma,,private
+```
+- **`repo`**: リポジトリ名（必須）
+- **`team`**: アクセス権限を付与するチーム名（任意）
+- **`description`**: リポジトリの説明文（任意・空欄可）
+- **`visibility`**: `private` または `public`（省略時はデフォルトで `private`）
+
+### 2. ドライラン実行
+```bash
+ORG_NAME="your-org-name" ./create_team_repos.sh --dry-run
+```
+
+### 3. 本番実行
+```bash
+ORG_NAME="your-org-name" ./create_team_repos.sh
+```
+
+> **Tips:**
+> テンプレートリポジトリから複製して作成したい場合は、環境変数 `TEMPLATE_REPO` を指定できます。
+> ```bash
+> TEMPLATE_REPO="your-org/template-repo" ORG_NAME="your-org-name" ./create_team_repos.sh
+> ```

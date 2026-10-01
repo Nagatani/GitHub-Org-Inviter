@@ -1,0 +1,4 @@
+repo,team,description,visibility
+project-team-alpha,team-alpha,Team Alpha Project Repository,private
+project-team-beta,team-beta,Team Beta Project Repository,private
+assignment-team-gamma,team-gamma,,private
