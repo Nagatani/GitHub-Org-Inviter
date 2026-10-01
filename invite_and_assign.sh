@@ -5,23 +5,35 @@ set -euo pipefail
 # ==============================================================================
 # 設定項目
 # ==============================================================================
-# 招待先の GitHub Organization 名 (環境変数 ORG_NAME でも上書き可能)
 ORG="${ORG_NAME:-YOUR_ORGANIZATION_NAME}"
-
-# 対象のCSVファイルパス (環境変数 CSV_PATH でも上書き可能)
 CSV_FILE="${CSV_PATH:-students.csv}"
-
-# Organization招待時のロール ("member" または "admin")
 ROLE="member"
-
-# チームが存在しない場合に自動で作成するかどうか (true / false)
 AUTO_CREATE_TEAM=true
-
-# チーム新規作成時の公開設定 ("closed": 組織全員に表示, "secret": メンバーのみに表示)
 TEAM_PRIVACY="closed"
-
-# APIリクエスト間の待機時間 (秒) - レートリミット回避用
 SLEEP_INTERVAL=0.5
+
+# ==============================================================================
+# ターミナルカラー設定 (見やすさ向上)
+# ==============================================================================
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+  C_RESET="\033[0m"
+  C_BOLD="\033[1m"
+  C_GREEN="\033[32m"
+  C_BLUE="\033[34m"
+  C_CYAN="\033[36m"
+  C_YELLOW="\033[33m"
+  C_RED="\033[31m"
+  C_GRAY="\033[90m"
+else
+  C_RESET=""
+  C_BOLD=""
+  C_GREEN=""
+  C_BLUE=""
+  C_CYAN=""
+  C_YELLOW=""
+  C_RED=""
+  C_GRAY=""
+fi
 
 # ==============================================================================
 # オプション解析・引数チェック
@@ -36,7 +48,7 @@ for arg in "$@"; do
       echo "使用方法: $0 [--dry-run]"
       echo ""
       echo "オプション:"
-      echo "  --dry-run   実際にAPIによる変更を行わず、チェックとシミュレーションのみ実行します"
+      echo "  --dry-run   実際にAPIによる変更を行わず、シミュレーションのみ実行します"
       echo ""
       echo "環境変数:"
       echo "  ORG_NAME    Organization名を指定 (デフォルト: $ORG)"
@@ -51,26 +63,26 @@ for arg in "$@"; do
 done
 
 if [ "$ORG" = "YOUR_ORGANIZATION_NAME" ]; then
-  echo "【エラー】スクリプト内の ORG を設定するか、ORG_NAME環境変数を指定してください。" >&2
+  echo -e "${C_RED}【エラー】スクリプト内の ORG を設定するか、ORG_NAME環境変数を指定してください。${C_RESET}" >&2
   echo "例: ORG_NAME=my-org $0" >&2
   exit 1
 fi
 
 if [ ! -f "$CSV_FILE" ]; then
-  echo "【エラー】CSVファイル '$CSV_FILE' が見つかりません。" >&2
+  echo -e "${C_RED}【エラー】CSVファイル '$CSV_FILE' が見つかりません。${C_RESET}" >&2
   exit 1
 fi
 
 echo "=================================================="
-echo " GitHub Organization & チーム一括招待スクリプト"
+echo -e "${C_BOLD} GitHub Organization & チーム一括招待スクリプト${C_RESET}"
 echo "=================================================="
-echo " Organization : $ORG"
-echo " CSVファイル  : $CSV_FILE"
-echo " チーム自動作成: $AUTO_CREATE_TEAM"
+echo " Organization   : $ORG"
+echo " CSVファイル    : $CSV_FILE"
+echo " チーム自動作成 : $AUTO_CREATE_TEAM"
 if [ "$DRY_RUN" = true ]; then
-  echo " 実行モード   : 【DRY-RUN (シミュレーション)】※変更は行われません"
+  echo -e " 実行モード     : ${C_YELLOW}${C_BOLD}【DRY-RUN (シミュレーション)】※ 実際の変更は行われません${C_RESET}"
 else
-  echo " 実行モード   : 【本番実行】"
+  echo -e " 実行モード     : ${C_GREEN}${C_BOLD}【本番実行】${C_RESET}"
 fi
 echo "=================================================="
 echo ""
@@ -92,22 +104,27 @@ line_number=0
 while IFS=, read -r raw_username raw_team rest || [ -n "$raw_username" ]; do
   ((line_number++))
 
-  # 前後の空白・改行・引用符 (ダブルクォート) を除去
+  # 前後の空白・改行・引用符を除去
   username=$(echo "$raw_username" | tr -d '\r\n ' | sed 's/^"//;s/"$//')
   team=$(echo "${raw_team:-}" | tr -d '\r\n ' | sed 's/^"//;s/"$//')
 
-  # ヘッダー行 (username等) や空行、コメント行 (#) をスキップ
-  if [[ -z "$username" || "$username" =~ ^(#|username|github) ]]; then
+  # 空行やコメント行 (#) をスキップ
+  if [[ -z "$username" || "$username" =~ ^# ]]; then
+    continue
+  fi
+
+  # ヘッダー行 (username, github, user) の完全一致スキップ
+  if [[ "$username" == "username" || "$username" == "github" || "$username" == "user" ]]; then
     continue
   fi
 
   ((total_users++))
   echo "--------------------------------------------------"
-  echo "[${line_number}行目] ユーザー: $username"
+  echo -e "${C_BOLD}[${line_number}行目] ユーザー: $username${C_RESET}"
 
   # 1. GitHub上にユーザーが存在するかチェック
   if ! gh api "users/$username" --silent 2>/dev/null; then
-    echo "  [エラー] GitHubアカウント '$username' が存在しません (ユーザー名の誤字の可能性)。"
+    echo -e "  ${C_RED}[✕ エラー] GitHubアカウント '$username' が存在しません (ユーザー名の誤字の可能性)${C_RESET}"
     ((fail_count++))
     continue
   fi
@@ -119,14 +136,14 @@ while IFS=, read -r raw_username raw_team rest || [ -n "$raw_username" ]; do
   fi
 
   if [ "$org_status" = "active" ]; then
-    echo "  - Organization : [参加済み] 既にOrganizationのメンバーです。"
+    echo -e "  - Organization : ${C_CYAN}[既存メンバー] すでにOrganizationに参加済みです (何もしません)${C_RESET}"
     ((org_already_member++))
   elif [ "$org_status" = "pending" ]; then
-    echo "  - Organization : [招待済み] 既に招待状を送信済みです (承認待ち)。"
+    echo -e "  - Organization : ${C_CYAN}[招待済み] すでに招待状を送信済みです (承認待ち / 何もしません)${C_RESET}"
     ((org_already_invited++))
   else
     if [ "$DRY_RUN" = true ]; then
-      echo "  - Organization : [要・招待] (DRY-RUN: ロール '$ROLE' で招待対象)"
+      echo -e "  - Organization : ${C_GREEN}${C_BOLD}[★ 予定] 招待状を送信します (ロール: $ROLE)${C_RESET}"
       ((org_newly_invited++))
     else
       echo -n "  - Organization : 招待を送信中... "
@@ -134,10 +151,10 @@ while IFS=, read -r raw_username raw_team rest || [ -n "$raw_username" ]; do
         -H "Accept: application/vnd.github+json" \
         "/orgs/$ORG/memberships/$username" \
         -f role="$ROLE" --silent 2>/dev/null; then
-        echo "[招待完了] 招待状を送信しました。"
+        echo -e "${C_GREEN}[送信完了] 招待状を送信しました${C_RESET}"
         ((org_newly_invited++))
       else
-        echo "[失敗] 招待の送信に失敗しました。"
+        echo -e "${C_RED}[送信失敗] 招待の送信に失敗しました${C_RESET}"
         ((fail_count++))
         continue
       fi
@@ -147,10 +164,15 @@ while IFS=, read -r raw_username raw_team rest || [ -n "$raw_username" ]; do
   # 3. チームへの所属処理 (チーム指定がある場合)
   if [ -n "$team" ]; then
     # チームの存在確認
-    if ! gh api "orgs/$ORG/teams/$team" --silent 2>/dev/null; then
+    team_exists=false
+    if gh api "orgs/$ORG/teams/$team" --silent 2>/dev/null; then
+      team_exists=true
+    fi
+
+    if [ "$team_exists" = false ]; then
       if [ "$AUTO_CREATE_TEAM" = true ]; then
         if [ "$DRY_RUN" = true ]; then
-          echo "  - チーム作成   : [要・作成] チーム '$team' が未作成のため、新規作成対象です。"
+          echo -e "  - チーム作成   : ${C_GREEN}${C_BOLD}[★ 予定] チーム '$team' は未作成のため、新規作成します${C_RESET}"
           ((team_newly_created++))
         else
           echo -n "  - チーム作成   : チーム '$team' を新規作成中... "
@@ -159,36 +181,39 @@ while IFS=, read -r raw_username raw_team rest || [ -n "$raw_username" ]; do
             "/orgs/$ORG/teams" \
             -f name="$team" \
             -f privacy="$TEAM_PRIVACY" --silent 2>/dev/null; then
-            echo "[作成完了]"
+            echo -e "${C_GREEN}[作成完了]${C_RESET}"
             ((team_newly_created++))
+            team_exists=true
           else
-            echo "[作成失敗] (権限等を確認してください)"
+            echo -e "${C_RED}[作成失敗] (権限等を確認してください)${C_RESET}"
             ((fail_count++))
             continue
           fi
         fi
       else
-        echo "  - チーム作成   : [スキップ] チーム '$team' は存在しません (AUTO_CREATE_TEAM=false)。"
+        echo -e "  - チーム作成   : ${C_YELLOW}[スキップ] チーム '$team' は存在しません (AUTO_CREATE_TEAM=false)${C_RESET}"
         ((skip_count++))
         continue
       fi
     fi
 
-    # チームの所属状態チェック
+    # チーム所属状態のチェック
     team_status="none"
-    if team_membership_info=$(gh api "orgs/$ORG/teams/$team/memberships/$username" 2>/dev/null); then
-      team_status=$(echo "$team_membership_info" | gh json '.state' 2>/dev/null || echo "unknown")
+    if [ "$team_exists" = true ]; then
+      if team_membership_info=$(gh api "orgs/$ORG/teams/$team/memberships/$username" 2>/dev/null); then
+        team_status=$(echo "$team_membership_info" | gh json '.state' 2>/dev/null || echo "unknown")
+      fi
     fi
 
     if [ "$team_status" = "active" ]; then
-      echo "  - チーム($team) : [所属済み] 既にこのチームのメンバーです。"
+      echo -e "  - チーム($team) : ${C_CYAN}[所属済み] すでにこのチームのメンバーです (何もしません)${C_RESET}"
       ((team_already_member++))
     elif [ "$team_status" = "pending" ]; then
-      echo "  - チーム($team) : [招待済み] 既にチームへの参加が承認待ちです。"
+      echo -e "  - チーム($team) : ${C_CYAN}[参加待ち] すでにチームへの参加が保留中です (何もしません)${C_RESET}"
       ((team_already_invited++))
     else
       if [ "$DRY_RUN" = true ]; then
-        echo "  - チーム($team) : [要・追加] (DRY-RUN: チームに追加対象)"
+        echo -e "  - チーム($team) : ${C_GREEN}${C_BOLD}[★ 予定] チームに追加します${C_RESET}"
         ((team_newly_assigned++))
       else
         echo -n "  - チーム($team) : チームに追加中... "
@@ -196,10 +221,10 @@ while IFS=, read -r raw_username raw_team rest || [ -n "$raw_username" ]; do
           -H "Accept: application/vnd.github+json" \
           "/orgs/$ORG/teams/$team/memberships/$username" \
           -f role="member" --silent 2>/dev/null; then
-          echo "[追加完了]"
+          echo -e "${C_GREEN}[追加完了]${C_RESET}"
           ((team_newly_assigned++))
         else
-          echo "[失敗]"
+          echo -e "${C_RED}[追加失敗]${C_RESET}"
           ((fail_count++))
           continue
         fi
@@ -212,35 +237,54 @@ done < "$CSV_FILE"
 
 echo ""
 echo "=================================================="
-echo " 処理サマリー (対象: ${total_users} 名)"
-echo "=================================================="
-echo " [Organization]"
-echo "   - 参加済み (既存)        : ${org_already_member} 名"
-echo "   - 招待済み (承認待ち)    : ${org_already_invited} 名"
 if [ "$DRY_RUN" = true ]; then
-  echo "   - 新規招待 (要・送信)    : ${org_newly_invited} 名"
-else
-  echo "   - 新規招待 (送信完了)    : ${org_newly_invited} 名"
-fi
-echo " [チーム]"
-echo "   - 所属済み (既存)        : ${team_already_member} 名"
-if [ "$team_already_invited" -gt 0 ]; then
-  echo "   - 招待済み (承認待ち)    : ${team_already_invited} 名"
-fi
-if [ "$DRY_RUN" = true ]; then
-  echo "   - 新規追加 (要・追加)    : ${team_newly_assigned} 名"
-  echo "   - 新規作成 (要・作成)    : ${team_newly_created} チーム"
-else
-  echo "   - 新規追加 (追加完了)    : ${team_newly_assigned} 名"
-  echo "   - 新規作成 (作成完了)    : ${team_newly_created} チーム"
-fi
-if [ "$skip_count" -gt 0 ] || [ "$fail_count" -gt 0 ]; then
-  echo " [その他]"
-  if [ "$skip_count" -gt 0 ]; then
-    echo "   - スキップ               : ${skip_count} 件"
+  echo -e "${C_BOLD} 📋 DRY-RUN シミュレーション結果サマリー (対象: ${total_users} 名)${C_RESET}"
+  echo "=================================================="
+  echo -e "${C_GREEN}${C_BOLD} 【本番実行時に行われるアクション】${C_RESET}"
+  echo "   ★ Organization新規招待   : ${org_newly_invited} 名"
+  echo "   ★ チーム新規作成         : ${team_newly_created} チーム"
+  echo "   ★ チーム新規追加         : ${team_newly_assigned} 名"
+  echo ""
+  echo -e "${C_CYAN} 【スキップされる対象 (変更不要)】${C_RESET}"
+  echo "   - Org参加済み (既存)      : ${org_already_member} 名"
+  echo "   - Org招待中 (承認待ち)    : ${org_already_invited} 名"
+  echo "   - チーム所属済み (既存)   : ${team_already_member} 名"
+  if [ "$team_already_invited" -gt 0 ]; then
+    echo "   - チーム参加保留中        : ${team_already_invited} 名"
   fi
-  if [ "$fail_count" -gt 0 ]; then
-    echo "   - エラー/失敗            : ${fail_count} 件"
+  if [ "$skip_count" -gt 0 ] || [ "$fail_count" -gt 0 ]; then
+    echo ""
+    echo -e "${C_RED} 【要確認・エラー】${C_RESET}"
+    if [ "$skip_count" -gt 0 ]; then
+      echo "   - スキップ (未存在チーム) : ${skip_count} 件"
+    fi
+    if [ "$fail_count" -gt 0 ]; then
+      echo "   - アカウント不明等エラー  : ${fail_count} 件"
+    fi
   fi
+  echo "=================================================="
+  echo -e " ${C_BOLD}👉 本番実行を行うには、--dry-run を外して実行してください:${C_RESET}"
+  echo "    ORG_NAME=\"$ORG\" ./invite_and_assign.sh"
+  echo "=================================================="
+else
+  echo -e "${C_BOLD} 処理結果サマリー (対象: ${total_users} 名)${C_RESET}"
+  echo "=================================================="
+  echo " [Organization]"
+  echo "   - 招待送信完了            : ${org_newly_invited} 名"
+  echo "   - 参加済み (スキップ)     : ${org_already_member} 名"
+  echo "   - 招待済み (スキップ)     : ${org_already_invited} 名"
+  echo " [チーム]"
+  echo "   - 新規追加完了            : ${team_newly_assigned} 名"
+  echo "   - 新規チーム作成          : ${team_newly_created} チーム"
+  echo "   - 所属済み (スキップ)     : ${team_already_member} 名"
+  if [ "$skip_count" -gt 0 ] || [ "$fail_count" -gt 0 ]; then
+    echo " [エラー・スキップ]"
+    if [ "$skip_count" -gt 0 ]; then
+      echo "   - スキップ               : ${skip_count} 件"
+    fi
+    if [ "$fail_count" -gt 0 ]; then
+      echo "   - エラー/失敗            : ${fail_count} 件"
+    fi
+  fi
+  echo "=================================================="
 fi
-echo "=================================================="
