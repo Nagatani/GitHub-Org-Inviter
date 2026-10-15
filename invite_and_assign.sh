@@ -147,14 +147,15 @@ while IFS=, read -r raw_username raw_team rest || [ -n "$raw_username" ]; do
       ((org_newly_invited++))
     else
       echo -n "  - Organization : 招待を送信中... "
-      if gh api --method PUT \
+      if invite_output=$(gh api --method PUT \
         -H "Accept: application/vnd.github+json" \
         "/orgs/$ORG/memberships/$username" \
-        -f role="$ROLE" --silent 2>/dev/null; then
+        -f role="$ROLE" 2>&1); then
         echo -e "${C_GREEN}[送信完了] 招待状を送信しました${C_RESET}"
         ((org_newly_invited++))
       else
         echo -e "${C_RED}[送信失敗] 招待の送信に失敗しました${C_RESET}"
+        echo -e "    ${C_RED}詳細: $invite_output${C_RESET}"
         ((fail_count++))
         continue
       fi
@@ -163,29 +164,36 @@ while IFS=, read -r raw_username raw_team rest || [ -n "$raw_username" ]; do
 
   # 3. チームへの所属処理 (チーム指定がある場合)
   if [ -n "$team" ]; then
-    # チームの存在確認
-    team_exists=false
-    if gh api "orgs/$ORG/teams/$team" --silent 2>/dev/null; then
-      team_exists=true
+    # チーム名を小文字スラッグに変換 (GitHub API用)
+    team_slug=$(echo "$team" | tr '[:upper:]' '[:lower:]')
+
+    # チームの存在確認 (スラッグまたは元の名前で確認)
+    actual_team=""
+    if gh api "orgs/$ORG/teams/$team_slug" --silent 2>/dev/null; then
+      actual_team="$team_slug"
+    elif gh api "orgs/$ORG/teams/$team" --silent 2>/dev/null; then
+      actual_team="$team"
     fi
 
-    if [ "$team_exists" = false ]; then
+    if [ -z "$actual_team" ]; then
       if [ "$AUTO_CREATE_TEAM" = true ]; then
         if [ "$DRY_RUN" = true ]; then
           echo -e "  - チーム作成   : ${C_GREEN}${C_BOLD}[★ 予定] チーム '$team' は未作成のため、新規作成します${C_RESET}"
           ((team_newly_created++))
+          actual_team="$team_slug"
         else
           echo -n "  - チーム作成   : チーム '$team' を新規作成中... "
-          if gh api --method POST \
+          if team_create_output=$(gh api --method POST \
             -H "Accept: application/vnd.github+json" \
             "/orgs/$ORG/teams" \
             -f name="$team" \
-            -f privacy="$TEAM_PRIVACY" --silent 2>/dev/null; then
+            -f privacy="$TEAM_PRIVACY" 2>&1); then
             echo -e "${C_GREEN}[作成完了]${C_RESET}"
             ((team_newly_created++))
-            team_exists=true
+            actual_team="$team_slug"
           else
             echo -e "${C_RED}[作成失敗] (権限等を確認してください)${C_RESET}"
+            echo -e "    ${C_RED}詳細: $team_create_output${C_RESET}"
             ((fail_count++))
             continue
           fi
@@ -199,32 +207,33 @@ while IFS=, read -r raw_username raw_team rest || [ -n "$raw_username" ]; do
 
     # チーム所属状態のチェック
     team_status="none"
-    if [ "$team_exists" = true ]; then
-      if team_membership_info=$(gh api "orgs/$ORG/teams/$team/memberships/$username" 2>/dev/null); then
+    if [ -n "$actual_team" ]; then
+      if team_membership_info=$(gh api "orgs/$ORG/teams/$actual_team/memberships/$username" 2>/dev/null); then
         team_status=$(echo "$team_membership_info" | gh json '.state' 2>/dev/null || echo "unknown")
       fi
     fi
 
     if [ "$team_status" = "active" ]; then
-      echo -e "  - チーム($team) : ${C_CYAN}[所属済み] すでにこのチームのメンバーです (何もしません)${C_RESET}"
+      echo -e "  - チーム($actual_team) : ${C_CYAN}[所属済み] すでにこのチームのメンバーです (何もしません)${C_RESET}"
       ((team_already_member++))
     elif [ "$team_status" = "pending" ]; then
-      echo -e "  - チーム($team) : ${C_CYAN}[参加待ち] すでにチームへの参加が保留中です (何もしません)${C_RESET}"
+      echo -e "  - チーム($actual_team) : ${C_CYAN}[参加待ち] すでにチームへの参加が保留中です (何もしません)${C_RESET}"
       ((team_already_invited++))
     else
       if [ "$DRY_RUN" = true ]; then
-        echo -e "  - チーム($team) : ${C_GREEN}${C_BOLD}[★ 予定] チームに追加します${C_RESET}"
+        echo -e "  - チーム($actual_team) : ${C_GREEN}${C_BOLD}[★ 予定] チームに追加します${C_RESET}"
         ((team_newly_assigned++))
       else
-        echo -n "  - チーム($team) : チームに追加中... "
-        if gh api --method PUT \
+        echo -n "  - チーム($actual_team) : チームに追加中... "
+        if team_assign_output=$(gh api --method PUT \
           -H "Accept: application/vnd.github+json" \
-          "/orgs/$ORG/teams/$team/memberships/$username" \
-          -f role="member" --silent 2>/dev/null; then
+          "/orgs/$ORG/teams/$actual_team/memberships/$username" \
+          -f role="member" 2>&1); then
           echo -e "${C_GREEN}[追加完了]${C_RESET}"
           ((team_newly_assigned++))
         else
           echo -e "${C_RED}[追加失敗]${C_RESET}"
+          echo -e "    ${C_RED}詳細: $team_assign_output${C_RESET}"
           ((fail_count++))
           continue
         fi
